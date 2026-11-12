@@ -17,8 +17,10 @@ import {
   calculateDistanceKm,
   computeOccupancyStatus,
   fetchGovCarparkAvailability,
+  fetchLtaDataMallAvailability,
   getStoredFavorites,
   mergeGovDataIntoCarparks,
+  mergeLtaDataMallIntoCarparks,
   simulateLotFluctuations,
   toggleStoredFavorite,
 } from './services/carparkService';
@@ -50,6 +52,8 @@ export default function App() {
   const [isFeeCalculatorOpen, setIsFeeCalculatorOpen] = useState<boolean>(false);
   const [isFetchingGov, setIsFetchingGov] = useState<boolean>(false);
   const [govMatchedCount, setGovMatchedCount] = useState<number | null>(null);
+  const [isFetchingLta, setIsFetchingLta] = useState<boolean>(false);
+  const [ltaMatchedCount, setLtaMatchedCount] = useState<number | null>(null);
   const [isLocating, setIsLocating] = useState<boolean>(false);
   const [viewMode, setViewMode] = useState<'split' | 'map' | 'list'>('split');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -147,6 +151,29 @@ export default function App() {
       triggerToast(`Synced live data for ${matchedCount} Singapore carparks from Data.gov.sg`);
     } else {
       triggerToast('Using real-time local telemetry stream');
+    }
+  };
+
+  // Live Singapore LTA DataMall serverless sync (/api/carparkavailability)
+  const handleFetchLtaData = async () => {
+    setIsFetchingLta(true);
+    triggerToast('Querying /api/carparkavailability (LTA DataMall)...');
+
+    const result = await fetchLtaDataMallAvailability();
+    setIsFetchingLta(false);
+
+    if (result.success && result.records.length > 0) {
+      const { updatedCarparks, matchedCount } = mergeLtaDataMallIntoCarparks(
+        carparks,
+        result.records
+      );
+      setCarparks(updatedCarparks);
+      setLtaMatchedCount(matchedCount);
+      triggerToast(`LTA DataMall: Synced ${matchedCount} carparks (${result.records.length} records)`);
+    } else if (result.error === 'MISSING_LTA_ACCOUNT_KEY') {
+      triggerToast('LTA_ACCOUNT_KEY not configured yet. Set it in .env or environment variables.');
+    } else {
+      triggerToast(result.message || 'LTA DataMall query finished');
     }
   };
 
@@ -319,6 +346,9 @@ export default function App() {
         isFetchingGov={isFetchingGov}
         onFetchGovData={handleFetchGovData}
         govMatchedCount={govMatchedCount}
+        isFetchingLta={isFetchingLta}
+        onFetchLtaData={handleFetchLtaData}
+        ltaMatchedCount={ltaMatchedCount}
         onOpenFeeCalculator={() => setIsFeeCalculatorOpen(true)}
         activeTab={activeTab}
         onSelectTab={handleSelectTab}

@@ -227,6 +227,129 @@ export function mergeGovDataIntoCarparks(
 }
 
 /**
+ * Fetch live carpark availability from the root serverless /api/carparkavailability proxy
+ */
+export async function fetchLtaDataMallAvailability(): Promise<{
+  success: boolean;
+  records: Array<{
+    CarParkID: string;
+    Area: string;
+    Development: string;
+    Location: string;
+    AvailableLots: number;
+    LotType: string;
+    Agency: string;
+  }>;
+  error?: string;
+  message?: string;
+  timestamp: string;
+}> {
+  try {
+    const res = await fetch('/api/carparkavailability');
+    const data = await res.json();
+
+    if (!res.ok || !data.success) {
+      return {
+        success: false,
+        records: [],
+        error: data.error || `HTTP ${res.status}`,
+        message: data.message || 'LTA DataMall proxy returned an error',
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    return {
+      success: true,
+      records: data.value || [],
+      timestamp: data.timestamp || new Date().toISOString(),
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      records: [],
+      error: 'NETWORK_ERROR',
+      message: err?.message || 'Could not reach /api/carparkavailability',
+      timestamp: new Date().toISOString(),
+    };
+  }
+}
+
+/**
+ * Merge LTA DataMall records into carparks state
+ */
+export function mergeLtaDataMallIntoCarparks(
+  carparks: Carpark[],
+  records: Array<{
+    CarParkID: string;
+    Area: string;
+    Development: string;
+    Location: string;
+    AvailableLots: number;
+    LotType: string;
+    Agency: string;
+  }>
+): { updatedCarparks: Carpark[]; matchedCount: number } {
+  const ltaMap: Record<string, Record<string, number>> = {};
+
+  for (const r of records) {
+    if (!r.CarParkID) continue;
+    if (!ltaMap[r.CarParkID]) {
+      ltaMap[r.CarParkID] = {};
+    }
+    const lotType = (r.LotType || 'C').toUpperCase();
+    ltaMap[r.CarParkID][lotType] = Number(r.AvailableLots) || 0;
+  }
+
+  let matched = 0;
+  const now = new Date().toLocaleTimeString('en-SG', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  });
+
+  const updatedCarparks = carparks.map((cp) => {
+    // Check match by carparkNumber (or id)
+    const match = ltaMap[cp.carparkNumber] || ltaMap[cp.id.toUpperCase()];
+    if (!match) return cp;
+
+    matched++;
+    const newLots = { ...cp.lots };
+
+    if (match['C'] !== undefined && newLots.C) {
+      newLots.C = {
+        ...newLots.C,
+        availableLots: Math.min(newLots.C.totalLots, match['C']),
+      };
+    }
+    if (match['Y'] !== undefined && newLots.Y) {
+      newLots.Y = {
+        ...newLots.Y,
+        availableLots: Math.min(newLots.Y.totalLots, match['Y']),
+      };
+    }
+    if (match['H'] !== undefined && newLots.H) {
+      newLots.H = {
+        ...newLots.H,
+        availableLots: Math.min(newLots.H.totalLots, match['H']),
+      };
+    }
+
+    const carAvail = newLots.C?.availableLots ?? 0;
+    const carTotal = newLots.C?.totalLots ?? 1;
+
+    return {
+      ...cp,
+      lots: newLots,
+      occupancyStatus: computeOccupancyStatus(carAvail, carTotal),
+      lastUpdated: `${now} (LTA DataMall)`,
+    };
+  });
+
+  return { updatedCarparks, matchedCount: matched };
+}
+
+/**
  * Calculates estimated parking fee given a duration and carpark
  */
 export function estimateParkingFee(

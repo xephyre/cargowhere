@@ -5,7 +5,39 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      {
+        name: 'api-serverless-dev-middleware',
+        configureServer(server) {
+          server.middlewares.use(async (req, res, next) => {
+            const url = req.url || '';
+            if (url.startsWith('/api/health')) {
+              try {
+                const { default: handler } = await import('./api/health.ts');
+                return handler(req, res);
+              } catch (err: any) {
+                res.statusCode = 500;
+                res.setHeader('Content-Type', 'application/json');
+                return res.end(JSON.stringify({ error: err?.message || String(err) }));
+              }
+            }
+            if (url.startsWith('/api/carparkavailability')) {
+              try {
+                const { default: handler } = await import('./api/carparkavailability.ts');
+                return handler(req, res);
+              } catch (err: any) {
+                res.statusCode = 500;
+                res.setHeader('Content-Type', 'application/json');
+                return res.end(JSON.stringify({ error: err?.message || String(err) }));
+              }
+            }
+            next();
+          });
+        },
+      },
+    ],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
